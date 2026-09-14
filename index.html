@@ -37,17 +37,20 @@
 
     <section class="player-wrap">
       <div class="player-image-wrap">
-        <img id="playerImage" class="player-image" src="player.png" alt="MIDNIGHT RADIO cassette player">
+        <img id="playerImage" class="player-image" src="player.webp" alt="MIDNIGHT RADIO cassette player">
 
-        <!-- Transparent interaction zones over the buttons in player.png -->
+        <div class="reel reel-left" aria-hidden="true">
+          <img src="reel-left.webp" alt="">
+        </div>
+        <div class="reel reel-right" aria-hidden="true">
+          <img src="reel-right.webp" alt="">
+        </div>
+
+        <!-- Transparent interaction zones over the buttons in player.webp -->
         <button id="prevBtn" class="hotspot hotspot-prev" aria-label="Previous track"></button>
         <button id="playBtn" class="hotspot hotspot-play" aria-label="Play or pause"></button>
         <button id="nextBtn" class="hotspot hotspot-next" aria-label="Next track"></button>
-        <button id="sideBtn" class="hotspot hotspot-side" aria-label="Switch side A or B"></button>
         <button id="playlistBtn" class="hotspot hotspot-playlist" aria-label="Open playlist"></button>
-
-        <!-- Covers the printed SIDE A label so it can be updated dynamically. -->
-        <div id="sideOverlay" class="side-overlay">SIDE A</div>
       </div>
     </section>
 
@@ -59,10 +62,13 @@
       <div class="track-main">
         <div class="track-kicker">
           <span id="trackNo">01 / 12</span>
-          <span id="sidePill">A SIDE</span>
         </div>
         <h1 id="trackTitle">月光が少しルートを外れる</h1>
         <div class="track-album">MIDNIGHT RADIO</div>
+
+        <button id="currentLyric" class="current-lyric" type="button" aria-label="Open full lyrics">
+          <span class="current-lyric-text">LYRICS</span>
+        </button>
 
         <div class="progress-wrap">
           <input id="progress" type="range" min="0" max="1000" value="0" aria-label="Song progress">
@@ -106,7 +112,7 @@
     </div>
   </section>
 
-  <audio id="audio" preload="metadata"></audio>
+  <audio id="audio" preload="none"></audio>
   <script src="script.js"></script>
 </body>
 </html>

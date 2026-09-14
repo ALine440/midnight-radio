@@ -1,20 +1,31 @@
 const TRACK_COUNT = 12;
 const AUDIO_EXT = ".mp3";
 const LYRIC_EXT = ".lrc";
-const COVER_EXTS = [".jpg",".jpeg",".png",".webp"];
+const COVER_EXT = ".png";
 
-const titles = ["月光が少しルートを外れる", "ネオンの海で揺れた", "幻の街で", "Afterglow", "まだ青いままで", "Afterglow Hotel", "ビルのシルエット", "Analog Veins", "漂う夜の波", "夢の花魁", "夜の隙間に", "響く鼓動だけ連れて"];
+const titles = [
+  "月光が少しルートを外れる",
+  "ネオンの海で揺れた",
+  "幻の街で",
+  "Afterglow",
+  "まだ青いままで",
+  "Afterglow Hotel",
+  "ビルのシルエット",
+  "Analog Veins",
+  "漂う夜の波",
+  "夢の花魁",
+  "夜の隙間に",
+  "響く鼓動だけ連れて"
+];
 
 const tracks = Array.from({length: TRACK_COUNT}, (_, i) => {
   const n = String(i + 1).padStart(2, "0");
   return {
-    no:n,
-    title:titles[i],
-    side:i < 6 ? "A" : "B",
-    audio:`audio/${n}${AUDIO_EXT}`,
-    lyric:`Lyric/${n}${LYRIC_EXT}`,
-    coverBase:`covers/${n}`,
-    backgroundBase:`backgrounds/${n}`
+    no: n,
+    title: titles[i],
+    audio: `audio/${n}${AUDIO_EXT}`,
+    lyric: `Lyric/${n}${LYRIC_EXT}`,
+    cover: `covers/${n}${COVER_EXT}`
   };
 });
 
@@ -25,10 +36,11 @@ const enterBtn = document.getElementById("enterBtn");
 const playBtn = document.getElementById("playBtn");
 const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
-const sideBtn = document.getElementById("sideBtn");
 const playlistBtn = document.getElementById("playlistBtn");
 const playlistBtn2 = document.getElementById("playlistBtn2");
 const lyricsBtn = document.getElementById("lyricsBtn");
+const currentLyric = document.getElementById("currentLyric");
+const currentLyricText = currentLyric.querySelector(".current-lyric-text");
 const muteBtn = document.getElementById("muteBtn");
 const menuBtn = document.getElementById("menuBtn");
 const overlay = document.getElementById("overlay");
@@ -45,8 +57,6 @@ const coverBox = document.getElementById("coverBox");
 const coverFallback = document.getElementById("coverFallback");
 const trackNo = document.getElementById("trackNo");
 const trackTitle = document.getElementById("trackTitle");
-const sidePill = document.getElementById("sidePill");
-const sideOverlay = document.getElementById("sideOverlay");
 const bgImage = document.getElementById("bgImage");
 const volume = document.getElementById("volume");
 const volumeValue = document.getElementById("volumeValue");
@@ -55,7 +65,11 @@ const volumeIcon = document.getElementById("volumeIcon");
 let currentIndex = 0;
 let lyrics = [];
 let lyricsLoadedFor = -1;
+let lyricsLoadingFor = -1;
+let lastActiveLyric = -2;
+let audioLoadedFor = -1;
 let muted = false;
+const coverCache = new Map();
 
 function fmt(sec){
   if(!Number.isFinite(sec)) return "--:--";
@@ -67,77 +81,95 @@ function escapeHtml(s){
   return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 }
 
-function tryImage(base, onSuccess, onFail, i=0){
-  if(i>=COVER_EXTS.length){onFail();return;}
-  const src=base+COVER_EXTS[i];
-  const test=new Image();
-  test.onload=()=>onSuccess(src);
-  test.onerror=()=>tryImage(base,onSuccess,onFail,i+1);
-  test.src=src;
-}
-
-function setBackground(track){
-  // If you later add backgrounds/01.jpg etc., they will be preferred.
-  tryImage(track.backgroundBase, src=>{
-    bgImage.style.backgroundImage=`url("${src}")`;
-    bgImage.style.opacity=".58";
-  },()=>{
-    tryImage(track.coverBase, src=>{
-      bgImage.style.backgroundImage=`url("${src}")`;
-      bgImage.style.opacity=".48";
-    },()=>{
-      bgImage.style.backgroundImage="none";
-      bgImage.style.opacity=".2";
-    });
+function loadCover(src){
+  if(coverCache.has(src)) return coverCache.get(src);
+  const promise = new Promise((resolve,reject)=>{
+    const img = new Image();
+    img.onload = ()=>resolve(src);
+    img.onerror = reject;
+    img.src = src;
   });
+  coverCache.set(src,promise);
+  return promise;
 }
 
 function renderCover(track){
   coverBox.style.backgroundImage="";
+  bgImage.style.backgroundImage="";
   coverFallback.textContent=track.no;
   coverFallback.style.display="block";
-  tryImage(track.coverBase, src=>{
+
+  loadCover(track.cover).then(src=>{
+    if(tracks[currentIndex] !== track) return;
     coverBox.style.backgroundImage=`url("${src}")`;
     coverFallback.style.display="none";
-  },()=>{});
+    // The cover doubles as the full-screen background, so the browser only needs one image.
+    bgImage.style.backgroundImage=`url("${src}")`;
+    bgImage.style.opacity=".34";
+  }).catch(()=>{
+    if(tracks[currentIndex] !== track) return;
+    bgImage.style.backgroundImage="none";
+    bgImage.style.opacity=".18";
+  });
+}
+
+function resetCurrentLyric(){
+  currentLyricText.textContent="LYRICS";
+  currentLyricText.classList.remove("is-active");
 }
 
 function renderTrack(){
   const t=tracks[currentIndex];
-  audio.src=t.audio;
+
+  // Do not request an MP3 when merely entering or changing tracks.
+  audio.pause();
+  audio.removeAttribute("src");
+  audioLoadedFor=-1;
+  app.classList.remove("is-playing");
+  playBtn.dataset.state="paused";
+
   trackNo.textContent=`${t.no} / ${TRACK_COUNT}`;
   trackTitle.textContent=t.title;
-  sidePill.textContent=`${t.side} SIDE`;
-  sideOverlay.textContent=`SIDE ${t.side}`;
   progress.value=0;
   currentTime.textContent="00:00";
   duration.textContent="--:--";
+  resetCurrentLyric();
   renderCover(t);
-  setBackground(t);
   lyricsLoadedFor=-1;
   lyrics=[];
+  lastActiveLyric=-2;
+  lyricsScroller.innerHTML="";
   renderPlaylist();
+
+  // LRC files are tiny; loading only the current track keeps the live lyric ready
+  // without downloading any audio.
   loadLyrics();
 }
 
 async function loadLyrics(){
   const indexAtStart=currentIndex;
+  if(lyricsLoadedFor===indexAtStart || lyricsLoadingFor===indexAtStart) return;
+  lyricsLoadingFor=indexAtStart;
   const t=tracks[indexAtStart];
-  lyricsScroller.innerHTML=`<div class="lyric-line near">Loading lyrics…</div>`;
   try{
-    const res=await fetch(t.lyric,{cache:"no-store"});
+    const res=await fetch(t.lyric,{cache:"default"});
     if(!res.ok) throw new Error("LRC not found");
     const text=await res.text();
-    lyrics=parseLRC(text);
+    const parsed=parseLRC(text);
+    if(indexAtStart!==currentIndex) return;
+    lyrics=parsed;
     lyricsLoadedFor=indexAtStart;
+    lastActiveLyric=-2;
     renderLyrics();
+    updateLyrics();
   }catch{
+    if(indexAtStart!==currentIndex) return;
     lyrics=[];
     lyricsLoadedFor=indexAtStart;
-    lyricsScroller.innerHTML=`
-      <div class="lyric-line near">LRC NOT FOUND</div>
-      <div class="lyric-line">Please place ${t.no}.lrc in the Lyric folder.</div>
-    `;
+    lyricsScroller.innerHTML=`<div class="lyric-line near">LRC NOT FOUND</div>`;
+    resetCurrentLyric();
+  }finally{
+    if(lyricsLoadingFor===indexAtStart) lyricsLoadingFor=-1;
   }
 }
 
@@ -164,27 +196,50 @@ function renderLyrics(){
   ).join("");
   lyricsScroller.querySelectorAll(".lyric-line").forEach(el=>{
     el.addEventListener("click",()=>{
+      if(audioLoadedFor!==currentIndex) return;
       audio.currentTime=Number(el.dataset.time);
       updateLyrics();
     });
   });
 }
 
-function updateLyrics(){
-  if(lyricsLoadedFor!==currentIndex || !lyrics.length) return;
+function getActiveLyricIndex(){
+  if(lyricsLoadedFor!==currentIndex || !lyrics.length) return -1;
   const time=audio.currentTime;
   let active=-1;
   for(let i=0;i<lyrics.length;i++){
     if(lyrics[i].time<=time) active=i;
     else break;
   }
+  return active;
+}
+
+function updateCurrentLyric(active){
+  if(!lyrics.length){
+    resetCurrentLyric();
+    return;
+  }
+  const index=active>=0 ? active : 0;
+  currentLyricText.textContent=lyrics[index].text;
+  currentLyricText.classList.toggle("is-active",active>=0);
+}
+
+function updateLyrics(){
+  const active=getActiveLyricIndex();
+  updateCurrentLyric(active);
+
+  if(lyricsLoadedFor!==currentIndex || !lyrics.length) return;
   const els=lyricsScroller.querySelectorAll(".lyric-line");
   els.forEach((el,i)=>{
     el.classList.toggle("active",i===active);
     el.classList.toggle("near",i===active-1 || i===active+1);
   });
-  if(active>=0 && overlayTitle.textContent==="LYRICS" && !overlay.hidden){
-    els[active]?.scrollIntoView({behavior:"smooth",block:"center"});
+
+  if(active>=0 && active!==lastActiveLyric){
+    lastActiveLyric=active;
+    if(overlayTitle.textContent==="LYRICS" && !overlay.hidden){
+      els[active]?.scrollIntoView({behavior:"smooth",block:"center"});
+    }
   }
 }
 
@@ -193,24 +248,35 @@ function renderPlaylist(){
     <button class="playlist-item ${i===currentIndex?"active":""}" data-index="${i}">
       <span class="pl-no">${t.no}</span>
       <span class="pl-title">${escapeHtml(t.title)}</span>
-      <span class="pl-side">${t.side} SIDE</span>
     </button>
   `).join("");
+
   playlistView.querySelectorAll(".playlist-item").forEach(btn=>{
     btn.addEventListener("click",()=>{
       currentIndex=Number(btn.dataset.index);
       renderTrack();
       playCurrent();
+      close();
     });
   });
 }
 
+function ensureAudioSource(){
+  if(audioLoadedFor===currentIndex && audio.src) return;
+  const t=tracks[currentIndex];
+  audio.src=t.audio;
+  audioLoadedFor=currentIndex;
+  audio.preload="metadata";
+}
+
 function playCurrent(){
+  ensureAudioSource();
   audio.play().then(()=>{
     app.classList.add("is-playing");
     playBtn.dataset.state="playing";
   }).catch(()=>{
-    // Browser may require a direct user gesture; the user can press PLAY again.
+    app.classList.remove("is-playing");
+    playBtn.dataset.state="paused";
   });
 }
 
@@ -220,6 +286,7 @@ function openOverlay(type){
     overlayTitle.textContent="LYRICS";
     playlistView.hidden=true;
     lyricsView.hidden=false;
+    if(lyricsLoadedFor!==currentIndex) loadLyrics();
     updateLyrics();
   }else{
     overlayTitle.textContent="PLAYLIST";
@@ -237,7 +304,7 @@ enterBtn.addEventListener("click",()=>{
   enterScreen.hidden=true;
   app.hidden=false;
   renderTrack();
-  audio.load();
+  // Audio deliberately stays unloaded until the user presses PLAY.
 });
 
 playBtn.addEventListener("click",()=>{
@@ -257,11 +324,7 @@ nextBtn.addEventListener("click",()=>{
   playCurrent();
 });
 
-sideBtn.addEventListener("click",()=>{
-  currentIndex=currentIndex<6?6:0;
-  renderTrack();
-  playCurrent();
-});
+currentLyric.addEventListener("click",()=>openOverlay("lyrics"));
 
 audio.addEventListener("loadedmetadata",()=>duration.textContent=fmt(audio.duration));
 audio.addEventListener("timeupdate",()=>{
@@ -282,7 +345,6 @@ audio.addEventListener("ended",()=>{
   renderTrack();
   playCurrent();
 });
-
 progress.addEventListener("input",()=>{
   if(audio.duration) audio.currentTime=Number(progress.value)/1000*audio.duration;
 });
@@ -295,6 +357,7 @@ volume.addEventListener("input",()=>{
     muted=false;
     audio.muted=false;
     muteBtn.textContent="VOL";
+    volumeIcon.textContent="◖";
   }
 });
 
@@ -304,8 +367,8 @@ function toggleMute(){
   muteBtn.textContent=muted?"MUTE":"VOL";
   volumeIcon.textContent=muted?"×":"◖";
 }
-muteBtn.addEventListener("click",toggleMute);
 
+muteBtn.addEventListener("click",toggleMute);
 playlistBtn.addEventListener("click",()=>openOverlay("playlist"));
 playlistBtn2.addEventListener("click",()=>openOverlay("playlist"));
 lyricsBtn.addEventListener("click",()=>openOverlay("lyrics"));

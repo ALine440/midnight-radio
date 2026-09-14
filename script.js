@@ -1,7 +1,7 @@
 const TRACK_COUNT = 12;
 const AUDIO_EXT = ".mp3";
 const LYRIC_EXT = ".lrc";
-const COVER_EXT = ".png";
+const COVER_EXT = ".webp";
 
 const titles = [
   "月光が少しルートを外れる",

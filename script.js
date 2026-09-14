@@ -85,6 +85,8 @@ function loadCover(src){
   if(coverCache.has(src)) return coverCache.get(src);
   const promise = new Promise((resolve,reject)=>{
     const img = new Image();
+    img.decoding = "async";
+    img.fetchPriority = "high";
     img.onload = ()=>resolve(src);
     img.onerror = reject;
     img.src = src;
@@ -141,9 +143,8 @@ function renderTrack(){
   lyricsScroller.innerHTML="";
   renderPlaylist();
 
-  // LRC files are tiny; loading only the current track keeps the live lyric ready
-  // without downloading any audio.
-  loadLyrics();
+  // Let the visual layer paint first; then fetch only the current track's LRC.
+  setTimeout(loadLyrics, 80);
 }
 
 async function loadLyrics(){
@@ -266,7 +267,8 @@ function ensureAudioSource(){
   const t=tracks[currentIndex];
   audio.src=t.audio;
   audioLoadedFor=currentIndex;
-  audio.preload="metadata";
+  audio.preload="auto";
+  audio.load();
 }
 
 function playCurrent(){
